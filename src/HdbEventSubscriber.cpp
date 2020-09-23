@@ -240,28 +240,35 @@ namespace HdbEventSubscriber_ns
         // Initialize the context list.
         // This must be done before HdbDevice creation
         // as to set correctly the current_context_index
-        std::vector<std::string> contexts_representation;
-        ContextMap::init(contextsList, contexts_representation);
+        ContextMap::init(contextsList, contexts);
         
-        string	status;
-        hdb_dev = std::make_shared<HdbDevice>(subscribeRetryPeriod, pollingThreadPeriod, statisticsTimeWindow, checkPeriodicTimeoutDelay, subscribeChangeAsFallback, this);
-
-        for(size_t i = 0; i < contexts_representation.size(); ++i)
+        delete[] attr_ContextsList_read;
+        attr_ContextsList_read = new Tango::DevString[contexts.size()];
+        
+        for(size_t i = 0; i < contexts.size(); ++i)
         {
-            std::strncpy(attr_ContextsList_read[i], contexts_representation[i].c_str(), contexts_representation[i].size());
+            attr_ContextsList_read[i] = const_cast<char*>(contexts[i].c_str());
         }
         
-        hdb_dev->defaultStrategy = defaultStrategy;
-        
-        if(ContextMap::defined(defaultStrategy))
-        {
-            std::strncpy(attr_Context_read[0], defaultStrategy.c_str(), defaultStrategy.size() + 1);
-        }
-        else
+        // If the default strategy is not defined, stop right away.
+        if(!ContextMap::defined(defaultStrategy))
         {
             ERROR_STREAM << "HdbEventSubscriber::init_device(): FAILED due to bad DefaultStrategy configuration: " << defaultStrategy << " is not present in ContextsList";
             exit(-1);
         }
+        
+        string	status;
+        hdb_dev = std::make_shared<HdbDevice>(
+                subscribeRetryPeriod
+                , pollingThreadPeriod
+                , statisticsTimeWindow
+                , checkPeriodicTimeoutDelay
+                , subscribeChangeAsFallback
+                , ContextMap::at(ContextMap::index(defaultStrategy))
+                , this);
+
+        // Sets the context from the context object.
+        *attr_Context_read = const_cast<char*>(hdb_dev->get_context().get_decl_name().c_str());
 
         attr_AttributeRecordFreq_read = &hdb_dev->AttributeRecordFreq;
         attr_AttributeFailureFreq_read = &hdb_dev->AttributeFailureFreq;
@@ -831,9 +838,7 @@ namespace HdbEventSubscriber_ns
         // Might throw if the context does not exists
         hdb_dev->set_context(argin);
 
-        std::string context_name = hdb_dev->get_context().get_decl_name();
-        
-        std::strncpy(attr_Context_read[0], context_name.c_str(), context_name.size() + 1);
+        *attr_Context_read = const_cast<char*>(hdb_dev->get_context().get_decl_name().c_str());
 
         hdb_dev->start_attributes();
 
